@@ -1,0 +1,275 @@
+<script type="text/javascript">
+  let base = '';
+  let query = new URLSearchParams();
+
+  if (window.location.hostname === 'localhost') {
+    base = 'dev.aitheon.com';
+    query.set('fl_token', localStorage.getItem('fl_token'));
+  } else {
+    base = getCookie('base_host');
+    // fallback, CS always running on ws. subdomain
+    if (!base) {
+      const domainArr = window.location.hostname.split('.');
+      base = domainArr.length === 3 ? domainArr.join('.') : domainArr.slice(1).join('.')
+    }
+  }
+  const elNodeInputSocket = '#node-input-socketId';
+  const elNodeInputSocketGroup = '#node-input-socketGroup';
+  const baseSocketsURL = `https://${base}/system-graph/api/sockets`;
+  const elNodeSchemaPayload = '#node-schema-payload';
+  let currentGroupSockets = [];
+
+  const loadSockets = (node, groupId) => {
+    $(elNodeInputSocket).empty();
+    fetch(`${baseSocketsURL}/groups/${groupId}/sockets?${ query }`, { credentials: 'include' }).then(res => res.json()).then((data) => {
+      currentGroupSockets = data;
+      for (var i = 0; i < data.length; i++) {
+        const socket = data[i];
+        const newOption = $('<option value="' + socket._id + '">' + socket.name + '</option>');
+        $(elNodeInputSocket).append(newOption);
+      }
+      // This will show default toolId selected previously
+      const socket = data.find(socket => socket._id === node.socketId);
+      node.socketId = (socket && socket._id) || (data && data.length && data[0]._id);
+      $(elNodeInputSocket).val(node.socketId);
+      $(elNodeInputSocket).focus();
+      loadStructure(node.socketId);
+      
+    }).catch(err => console.error(err));
+  }
+
+  const loadSocketGroups = (node) => {
+    fetch(`${baseSocketsURL}/groups?${ query }`, { credentials: 'include' }).then(res => res.json()).then((data) => {
+      for (var i = 0; i < data.length; i++) {
+        var group = data[i];
+        var newOption = $('<option value="' + group._id + '">' + group.name + '</option>');
+        $(elNodeInputSocketGroup).append(newOption);
+      }
+      // This will show default toolId selected previously
+      if (node.socketGroup) {
+        $(elNodeInputSocketGroup).val(node.socketGroup);
+        if(node.socketId) {
+          loadSockets(node, node.socketGroup);
+        }
+      }
+      currentGroupSockets = data;
+    }).catch(err => console.error(err));
+  }
+
+  function getCookie(name) {
+    let cookie = {};
+    document.cookie.split(';').forEach(function (el) {
+      let [k, v] = el.split('=');
+      cookie[k.trim()] = v;
+    })
+    return cookie[name];
+  }
+
+  function oneditprepare() {
+    var node = this;
+    $(elNodeInputSocketGroup).change((evt) => {
+      const groupId = $(evt.currentTarget).val();
+      if (groupId) {
+        node.socketGroup = groupId;
+        loadSockets(node, groupId);
+      }
+    })
+    $(elNodeInputSocket).change((evt) => {
+      const socketId = $(evt.currentTarget).val();
+      if (socketId) {
+        node.socketId = socketId;
+        loadStructure(socketId);
+      }
+    })
+    loadSocketGroups(node);
+  }
+
+
+  function loadStructure(socketId) {
+    if(!currentGroupSockets.length) {
+      return;
+    }
+    if(!socketId) {
+      return $(elNodeSchemaPayload).val('');
+    }
+
+    const socket = currentGroupSockets.find(c => c._id === socketId);
+    if(!socket || !socket.structure) { return; }
+    const structure =  JSON.stringify(socket.structure.properties, undefined, 4);
+    $(elNodeSchemaPayload).val(structure);
+  }
+
+  RED.nodes.registerType('graph-output', {
+    category: 'aitheon',
+    color: '#f5ba06',
+    defaults: {
+      name: {
+        value: "",
+        required: true,
+        validate: RED.validators.regex(/^[$A-Z_][0-9A-Z_$]*$/i)
+      },
+      socketGroup: {
+        value: "",
+        required: true,
+      },
+      socketId: {
+        value: "",
+        required: true,
+      },
+    },
+    oneditprepare,
+    inputs: 1,
+    outputs: 1,
+    icon: "link-out.svg",
+    align: "right",
+    label: function () {
+      return this.name || "graph-output";
+    }
+  });
+
+  RED.nodes.registerType('graph-input', {
+    category: 'aitheon',
+    color: '#f5ba06',
+    defaults: {
+      name: {
+        value: "",
+        required: true,
+        validate: RED.validators.regex(/^[$A-Z_][0-9A-Z_$]*$/i)
+      },
+      socketGroup: {
+        value: "",
+        required: true,
+      },
+      socketId: {
+        value: "",
+        required: true,
+      },
+    },
+    oneditprepare,
+    inputs: 0,
+    outputs: 1,
+    icon: "link-out.svg",
+    label: function () {
+      return this.name || "graph-input";
+    }
+  });
+
+  RED.nodes.registerType('graph-setting-param', {
+    category: 'aitheon',
+    color: '#f5ba06',
+    defaults: {
+      name: {
+        value: "",
+        required: true,
+        validate: RED.validators.regex(/^[$A-Z_][0-9A-Z_$]*$/i)
+      },
+      defaultValue: {
+        value: "",
+      }
+    },
+    oneditprepare,
+    inputs: 0,
+    outputs: 0,
+    icon: "cog.svg",
+    label: function () {
+      return this.name || "graph-setting-param";
+    }
+  });
+
+</script>
+
+<script type="text/html" data-template-name="graph-output">
+
+  <style>
+    #node-schema-payload {
+      width: 100%;
+      height: 300px;
+    }
+    #node-schema-payload:read-only {
+      cursor: inherit;
+      background-color: transparent;
+    }
+  </style>
+
+  <div class="form-row">
+    <label for="node-input-name"><i class="icon-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-socketGroup"><i class="icon-tag"></i> Socket Group</label>
+    <select type="text" id="node-input-socketGroup" placeholder="Socket Group">
+      <option value="">Select socket group</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-socketId"><i class="icon-tag"></i> Socket</label>
+    <select type="text" id="node-input-socketId" placeholder="Socket">
+      <option value="">Select socket</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-socketId"><i class="icon-tag"></i>Schema</label>
+    <textarea readonly id="node-schema-payload">
+    </textarea>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="graph-output">
+  <p>Graph Output</p>
+</script>
+
+
+<script type="text/html" data-template-name="graph-input">
+  <style>
+    #node-schema-payload {
+      width: 100%;
+      height: 300px;
+    }
+    #node-schema-payload:read-only {
+      cursor: inherit;
+      background-color: transparent;
+    }
+  </style>
+  <div class="form-row">
+    <label for="node-input-name"><i class="icon-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-socketGroup"><i class="icon-tag"></i> Socket Group</label>
+    <select type="text" id="node-input-socketGroup" placeholder="Socket Group">
+      <option value="">Select socket group</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-socketId"><i class="icon-tag"></i> Socket</label>
+    <select type="text" id="node-input-socketId" placeholder="Socket">
+      <option value="">Select socket</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-socketId"><i class="icon-tag"></i>Schema</label>
+    <textarea readonly id="node-schema-payload">
+    </textarea>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="graph-input">
+  <p>Graph Input</p>
+</script>
+
+
+
+<script type="text/html" data-template-name="graph-setting-param">
+  <div class="form-row">
+    <label for="node-input-name"><i class="icon-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-defaultValue"><i class="icon-tag"></i> Default Value</label>
+    <input type="text" id="node-input-defaultValue" placeholder="Default Name">
+  </div>
+</script>
+
+<script type="text/html" data-help-name="graph-setting-param">
+  <p>Settings Param</p>
+</script>
